@@ -57,7 +57,9 @@ const ScannerScreen = ({ navigation }) => {
         Alert.alert('Error', 'Error al escanear: ' + error.message);
         return;
       }
-      if (device && device.name && device.name.startsWith('Pokemon:')) {
+      
+      
+      if (device) {
         setDevices(prevDevices => {
           const existingDevice = prevDevices.find(d => d.id === device.id);
           if (!existingDevice) {
@@ -73,7 +75,7 @@ const ScannerScreen = ({ navigation }) => {
       bleManager.stopDeviceScan();
       setScanning(false);
       if (devices.length === 0) {
-        Alert.alert('Info', 'No se encontraron dispositivos Pokémon');
+        Alert.alert('Info', 'No se encontraron dispositivos Bluetooth');
       }
     }, 5000);
   };
@@ -83,8 +85,13 @@ const ScannerScreen = ({ navigation }) => {
       style={styles.deviceItem}
       onPress={() => navigation.navigate('Sender', { device: item })}
     >
-      <Text style={styles.deviceName}>{item.name}</Text>
+      <Text style={styles.deviceName}>
+        {item.name || 'Dispositivo sin nombre'}
+      </Text>
       <Text style={styles.deviceId}>ID: {item.id}</Text>
+      {item.manufacturerData && (
+        <Text style={styles.deviceData}>Datos: {item.manufacturerData}</Text>
+      )}
     </TouchableOpacity>
   );
 
@@ -110,6 +117,10 @@ const ScannerScreen = ({ navigation }) => {
           </Text>
         </TouchableOpacity>
       </View>
+
+      <Text style={styles.countText}>
+        Dispositivos encontrados: {devices.length}
+      </Text>
 
       <FlatList
         data={devices}
@@ -156,6 +167,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
+  countText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    color: '#333',
+  },
   list: {
     flex: 1,
   },
@@ -173,6 +190,11 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 4,
   },
+  deviceData: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
+  },
   emptyText: {
     textAlign: 'center',
     color: '#666',
@@ -181,4 +203,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default ScannerScreen; 
+export default ScannerScreen;

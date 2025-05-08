@@ -11,26 +11,16 @@ import {
 } from 'react-native';
 import BleAdvertiser from 'react-native-ble-advertiser';
 
+// UUID del servicio
 const SERVICE_UUID = '12345678-1234-5678-1234-56789abcdef0';
 
-function bytesToHex(bytes) {
-  return bytes.map(byte => byte.toString(16).padStart(2, '0')).join('');
-}
-
-function stringToBytes(str) {
-  const bytes = [];
-  for (let i = 0; i < str.length; ++i) {
-    bytes.push(str.charCodeAt(i));
-  }
-  return bytes;
-}
-
-const SenderScreen = ({ route }) => {
+const SenderScreen = ({ route, navigation }) => {
   const [isAdvertising, setIsAdvertising] = useState(false);
   const [pokemonName, setPokemonName] = useState('Pikachu');
+  const [bleSupported, setBleSupported] = useState(true);
 
   useEffect(() => {
-    requestPermissions();
+    setupBLE();
     return () => {
       if (isAdvertising) {
         stopAdvertising();
@@ -38,107 +28,156 @@ const SenderScreen = ({ route }) => {
     };
   }, []);
 
-  const requestPermissions = async () => {
-    if (Platform.OS === 'android') {
-      const permissions = [
-        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-      ];
-      if (Platform.Version >= 31) {
-        permissions.push(
-          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-          PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE
-        );
-      }
-      const granted = await PermissionsAndroid.requestMultiple(permissions);
-      const allGranted = Object.values(granted).every(v => v === PermissionsAndroid.RESULTS.GRANTED);
-      if (!allGranted) {
-        Alert.alert('Error', 'Se necesitan permisos para usar Bluetooth');
-      }
+  const setupBLE = async () => {
+    try {
+      await requestPermissions();
+      setBleSupported(true);
+    } catch (error) {
+      console.error('Error en la configuración BLE:', error);
+      Alert.alert('Error', 'Ocurrió un error al configurar el Bluetooth: ' + error.message);
     }
   };
 
-  const startAdvertising = async () => {
-    try {
-      if (!pokemonName.trim()) {
-        Alert.alert('Error', 'Por favor ingresa un nombre de Pokémon');
-        return;
+  const requestPermissions = async () => {
+    if (Platform.OS === 'android') {
+      try {
+        // Para Android 10, solo necesitamos permisos de ubicación
+        const permissions = [
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+          PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
+        ];
+        
+        console.log('Solicitando permisos de ubicación para Android 10:', permissions);
+        const granted = await PermissionsAndroid.requestMultiple(permissions);
+        console.log('Resultado de permisos:', granted);
+        
+        const allGranted = Object.values(granted).every(
+          v => v === PermissionsAndroid.RESULTS.GRANTED
+        );
+        
+        if (!allGranted) {
+          console.log('No se otorgaron todos los permisos:', granted);
+          Alert.alert(
+            'Permisos insuficientes',
+            'Se necesitan permisos de ubicación para utilizar el Bluetooth LE. Por favor, otorga los permisos en la configuración del dispositivo.'
+          );
+          return false;
+        }
+
+        // Verificar que Bluetooth está habilitado
+        const isEnabled = await BleAdvertiser.isEnabled();
+        if (!isEnabled) {
+          Alert.alert(
+            'Bluetooth desactivado',
+            'Por favor, activa el Bluetooth en la configuración del dispositivo.'
+          );
+          return false;
+        }
+
+        return true;
+      } catch (error) {
+        console.error('Error al solicitar permisos:', error);
+        Alert.alert(
+          'Error de permisos',
+          'No se pudieron solicitar los permisos: ' + error.message
+        );
+        return false;
       }
-      
-      // Asegurarse de que manufacturerId sea un número
-      const manufacturerId = 0x4C; // Formato hexadecimal, se convierte automáticamente a número
-      
-      BleAdvertiser.broadcast(
+    }
+    return true;
+  };
+
+  const startAdvertising = async () => {
+    if (!pokemonName.trim()) {
+      Alert.alert('Error', 'Por favor ingresa un nombre de Pokémon');
+      return;
+    }
+
+    try {
+      // Detener cualquier anuncio anterior
+      try {
+        await BleAdvertiser.stopBroadcast();
+      } catch (stopError) {
+        console.log('Nota: No había anuncios previos o error al detener', stopError);
+      }
+
+      // Iniciar el anuncio con configuración básica
+      await BleAdvertiser.broadcast(
         SERVICE_UUID,
         [SERVICE_UUID],
         {
           includeDeviceName: true,
-          manufacturerId: manufacturerId, // Asegurarse que sea un número
-          manufacturerData: stringToBytes(pokemonName) // Convertir string a array de bytes
+          deviceName: `Pokemon:${pokemonName}`
         }
-      )
-        .then(success => {
-          setIsAdvertising(true);
-          Alert.alert('Éxito', `Anunciando como: ${pokemonName}`);
-        })
-        .catch(error => {
-          console.error('Error al iniciar anuncio BLE:', JSON.stringify(error, null, 2));
-          Alert.alert('Error', 'No se pudo iniciar el anuncio: ' + (error.message || 'Error desconocido') + (error.code ? ' Code: ' + error.code : ''));
-        });
+      );
+
+      setIsAdvertising(true);
+      Alert.alert('Éxito', `Anunciando como: Pokemon:${pokemonName}`);
+
     } catch (error) {
-      Alert.alert('Error', 'No se pudo iniciar el anuncio: ' + (error?.message || 'Error desconocido'));
+      console.error('Error al iniciar anuncio BLE:', error);
+      Alert.alert(
+        'Error de anuncio',
+        'No se pudo iniciar el anuncio: ' + (error?.message || 'Error desconocido')
+      );
     }
   };
 
   const stopAdvertising = async () => {
     try {
-      BleAdvertiser.stopBroadcast()
-        .then(() => {
-          setIsAdvertising(false);
-          Alert.alert('Info', 'Anuncio detenido');
-        })
-        .catch(error => {
-          Alert.alert('Error', 'No se pudo detener el anuncio: ' + (error?.message || 'Error desconocido'));
-        });
+      await BleAdvertiser.stopBroadcast();
+      setIsAdvertising(false);
+      Alert.alert('Info', 'Anuncio detenido');
     } catch (error) {
-      Alert.alert('Error', 'No se pudo detener el anuncio: ' + (error?.message || 'Error desconocido'));
+      console.error('Error al detener anuncio:', error);
+      Alert.alert(
+        'Error',
+        'No se pudo detener el anuncio: ' + (error?.message || 'Error desconocido')
+      );
     }
-  };
-
-  const sendPokemon = async () => {
-    Alert.alert('Enviando', `Enviando Pokemon: ${pokemonName}`);
   };
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Enviar Pokémon</Text>
-      <TextInput
-        style={styles.input}
-        value={pokemonName}
-        onChangeText={setPokemonName}
-        placeholder="Ingresa el nombre del Pokémon"
-        editable={!isAdvertising}
-      />
-      <TouchableOpacity
-        style={[styles.button, isAdvertising && styles.activeButton]}
-        onPress={isAdvertising ? stopAdvertising : startAdvertising}
-      >
-        <Text style={styles.buttonText}>
-          {isAdvertising ? 'Detener Anuncio' : 'Iniciar Anuncio'}
+      
+      {!bleSupported ? (
+        <Text style={styles.errorText}>
+          Este dispositivo no es compatible con Bluetooth LE.
         </Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={[styles.button, styles.sendButton]}
-        onPress={sendPokemon}
-        disabled={!isAdvertising}
-      >
-        <Text style={styles.buttonText}>Enviar Pokémon</Text>
-      </TouchableOpacity>
-      {isAdvertising && (
-        <Text style={styles.statusText}>
-          Anunciando como: {pokemonName}
-        </Text>
+      ) : (
+        <>
+          <TextInput
+            style={styles.input}
+            value={pokemonName}
+            onChangeText={setPokemonName}
+            placeholder="Ingresa el nombre del Pokémon"
+            editable={!isAdvertising}
+          />
+          
+          <TouchableOpacity
+            style={[styles.button, isAdvertising && styles.activeButton]}
+            onPress={isAdvertising ? stopAdvertising : startAdvertising}
+          >
+            <Text style={styles.buttonText}>
+              {isAdvertising ? 'Detener Anuncio' : 'Iniciar Anuncio'}
+            </Text>
+          </TouchableOpacity>
+          
+          {isAdvertising && (
+            <Text style={styles.statusText}>
+              Anunciando como: Pokemon:{pokemonName}
+            </Text>
+          )}
+        </>
       )}
+      
+      <TouchableOpacity
+        style={[styles.button, styles.navButton]}
+        onPress={() => navigation.navigate('Scanner')}
+      >
+        <Text style={styles.buttonText}>Ir a Escanear</Text>
+      </TouchableOpacity>
     </View>
   );
 };
@@ -176,6 +215,13 @@ const styles = StyleSheet.create({
   sendButton: {
     backgroundColor: '#34C759',
   },
+  disabledButton: {
+    backgroundColor: '#aaa',
+  },
+  navButton: {
+    backgroundColor: '#5856D6',
+    marginTop: 16,
+  },
   buttonText: {
     color: '#fff',
     fontSize: 16,
@@ -186,6 +232,12 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 16,
     fontSize: 14,
+  },
+  errorText: {
+    textAlign: 'center',
+    color: '#FF3B30',
+    marginVertical: 24,
+    fontSize: 16,
   },
 });
 
